@@ -96,7 +96,7 @@ export function DeviceStatusPanel() {
   }
 
   const navigateToDeviceSettings = (deviceId: string) => {
-    router.push(`/devices/${deviceId}/settings`)
+    router.push(`/devices`)
   }
 
   const getStatusBadgeVariant = (status: string) => {

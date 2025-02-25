@@ -3,7 +3,7 @@ import { db } from '../../singleton';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { protect } from '../../middleware/auth';
-import { sendResetPasswordEmail } from '../../services/email.service';
+import { sendResetPasswordEmail, sendTestEmail } from '../../services/email.service';
 import crypto from 'crypto';
 import { z } from 'zod';
 import { validateRequest } from '../../middleware/validate';
@@ -416,6 +416,40 @@ router.post('/reset-password', csrfProtection, validateRequest(z.object({
       status: 'success',
       message: 'Mật khẩu đã được đặt lại thành công'
     });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Route test gửi email (chỉ sử dụng trong môi trường phát triển)
+router.post('/test-email', csrfProtection, validateRequest(z.object({
+  body: z.object({
+    email: z.string().email('Email không hợp lệ')
+  })
+})), async (req, res, next) => {
+  try {
+    // Chỉ cho phép trong môi trường phát triển
+    if (process.env.NODE_ENV !== 'development') {
+      return res.status(403).json({
+        status: 'error',
+        message: 'Route này chỉ có sẵn trong môi trường phát triển'
+      });
+    }
+
+    const { email } = req.body;
+    
+    // Gửi email test
+    const result = await sendTestEmail(email);
+    
+    if (result.success) {
+      res.json({
+        status: 'success',
+        message: 'Email test đã được gửi thành công',
+        data: { messageId: result.messageId }
+      });
+    } else {
+      throw new Error('Không thể gửi email test');
+    }
   } catch (error) {
     next(error);
   }

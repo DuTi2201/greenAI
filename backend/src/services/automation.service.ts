@@ -2,8 +2,12 @@ import { db } from '../singleton';
 import { deviceService } from './device.service';
 import { AutomationRule } from '@prisma/client';
 import { Redis } from 'ioredis';
+import cron from 'node-cron';
 
 const redis = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
+
+// Lưu trữ các jobs đang chạy
+const scheduledJobs: { [key: string]: cron.ScheduledTask } = {};
 
 interface SensorData {
   temperature: number;
@@ -83,6 +87,40 @@ const markRuleExecuted = async (rule: AutomationRule): Promise<void> => {
 };
 
 /**
+ * Tạo cron expression từ thông tin lịch
+ * @param scheduleTime Thời gian (HH:MM)
+ * @param scheduleType Loại lịch (once, daily, weekly)
+ * @param scheduleDay Ngày trong tuần (0-6, 0 là Chủ nhật)
+ * @param scheduleDate Ngày cụ thể (cho lịch một lần)
+ * @returns Cron expression
+ */
+const createCronExpression = (
+  scheduleTime: string,
+  scheduleType: string,
+  scheduleDay?: number | null,
+  scheduleDate?: Date | null
+): string => {
+  const [hours, minutes] = scheduleTime.split(':').map(Number);
+  
+  switch (scheduleType) {
+    case 'once':
+      if (!scheduleDate) throw new Error('Schedule date is required for once schedule');
+      const date = new Date(scheduleDate);
+      return `${minutes} ${hours} ${date.getDate()} ${date.getMonth() + 1} *`;
+    
+    case 'daily':
+      return `${minutes} ${hours} * * *`;
+    
+    case 'weekly':
+      if (scheduleDay === undefined || scheduleDay === null) throw new Error('Schedule day is required for weekly schedule');
+      return `${minutes} ${hours} * * ${scheduleDay}`;
+    
+    default:
+      throw new Error(`Unknown schedule type: ${scheduleType}`);
+  }
+};
+
+/**
  * Xử lý quy tắc tự động hóa
  * @param gardenId ID của vườn
  * @param sensorData Dữ liệu cảm biến hiện tại
@@ -93,7 +131,8 @@ export const processAutomationRules = async (gardenId: string, sensorData: Senso
     const rules = await db.automationRule.findMany({
       where: {
         gardenId,
-        isActive: true
+        isActive: true,
+        sensorType: { not: 'schedule' } // Bỏ qua các quy tắc lập lịch
       },
       orderBy: {
         priority: 'desc'
@@ -136,6 +175,12 @@ export const processAutomationRules = async (gardenId: string, sensorData: Senso
         
         // Đánh dấu quy tắc đã được thực hiện
         await markRuleExecuted(rule);
+        
+        // Cập nhật thời gian thực hiện gần nhất
+        await db.automationRule.update({
+          where: { id: rule.id },
+          data: { lastExecuted: new Date() }
+        });
         
         // Ghi log
         await db.systemLog.create({
@@ -209,7 +254,149 @@ export const checkRuleConflicts = (rules: AutomationRule[]): { rule1: Automation
   return conflicts;
 };
 
+/**
+ * Lập lịch cho một quy tắc tự động hóa
+ * @param rule Quy tắc cần lập lịch
+ */
+export const scheduleAutomationRule = async (rule: AutomationRule): Promise<void> => {
+  // Hủy job cũ nếu có
+  if (scheduledJobs[rule.id]) {
+    scheduledJobs[rule.id].stop();
+    delete scheduledJobs[rule.id];
+  }
+  
+  // Nếu quy tắc không phải loại lập lịch hoặc không active, không cần lập lịch
+  if (rule.sensorType !== 'schedule' || !rule.isActive || !rule.scheduleTime || !rule.scheduleType) {
+    return;
+  }
+  
+  try {
+    // Tạo cron expression
+    const cronExpression = createCronExpression(
+      rule.scheduleTime,
+      rule.scheduleType,
+      rule.scheduleDay,
+      rule.scheduleDate
+    );
+    
+    // Tạo job mới
+    const job = cron.schedule(cronExpression, async () => {
+      try {
+        // Kiểm tra lại quy tắc có còn active không
+        const currentRule = await db.automationRule.findUnique({
+          where: { id: rule.id }
+        });
+        
+        if (!currentRule || !currentRule.isActive) {
+          job.stop();
+          delete scheduledJobs[rule.id];
+          return;
+        }
+        
+        // Thực hiện điều khiển thiết bị
+        const garden = await db.garden.findUnique({
+          where: { id: rule.gardenId }
+        });
+        
+        if (!garden) {
+          throw new Error('Garden not found');
+        }
+        
+        await deviceService.controlDevice(rule.gardenId, garden.userId, {
+          [rule.actionDevice]: rule.actionStatus
+        });
+        
+        // Cập nhật thời gian thực hiện gần nhất
+        await db.automationRule.update({
+          where: { id: rule.id },
+          data: { lastExecuted: new Date() }
+        });
+        
+        // Ghi log
+        await db.systemLog.create({
+          data: {
+            gardenId: rule.gardenId,
+            eventType: 'scheduled_rule_executed',
+            description: `Scheduled rule ${rule.id} executed: ${rule.scheduleType} at ${rule.scheduleTime} => ${rule.actionDevice} ${rule.actionStatus ? 'ON' : 'OFF'}`,
+            level: 'info'
+          }
+        });
+        
+        // Nếu là lịch một lần, vô hiệu hóa quy tắc sau khi thực hiện
+        if (rule.scheduleType === 'once') {
+          await db.automationRule.update({
+            where: { id: rule.id },
+            data: { isActive: false }
+          });
+          
+          job.stop();
+          delete scheduledJobs[rule.id];
+        }
+      } catch (error) {
+        console.error(`Scheduled job error (${rule.id}):`, error);
+        
+        // Ghi log lỗi
+        await db.systemLog.create({
+          data: {
+            gardenId: rule.gardenId,
+            eventType: 'scheduled_rule_error',
+            description: `Error executing scheduled rule ${rule.id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+            level: 'error'
+          }
+        });
+      }
+    });
+    
+    // Lưu job vào danh sách đang chạy
+    scheduledJobs[rule.id] = job;
+    
+    console.log(`Scheduled rule ${rule.id} with cron: ${cronExpression}`);
+  } catch (error) {
+    console.error(`Error scheduling rule ${rule.id}:`, error);
+  }
+};
+
+/**
+ * Khởi tạo lại tất cả các quy tắc lập lịch
+ * Được gọi khi server khởi động
+ */
+export const initializeScheduledRules = async (): Promise<void> => {
+  try {
+    // Lấy tất cả các quy tắc lập lịch đang active
+    const scheduledRules = await db.automationRule.findMany({
+      where: {
+        sensorType: 'schedule',
+        isActive: true
+      }
+    });
+    
+    // Lập lịch cho từng quy tắc
+    for (const rule of scheduledRules) {
+      await scheduleAutomationRule(rule);
+    }
+    
+    console.log(`Initialized ${scheduledRules.length} scheduled rules`);
+  } catch (error) {
+    console.error('Initialize scheduled rules error:', error);
+  }
+};
+
+/**
+ * Hủy lịch cho một quy tắc
+ * @param ruleId ID của quy tắc cần hủy lịch
+ */
+export const cancelScheduledRule = async (ruleId: string): Promise<void> => {
+  if (scheduledJobs[ruleId]) {
+    scheduledJobs[ruleId].stop();
+    delete scheduledJobs[ruleId];
+    console.log(`Canceled scheduled rule ${ruleId}`);
+  }
+};
+
 export const automationService = {
   processAutomationRules,
-  checkRuleConflicts
+  checkRuleConflicts,
+  scheduleAutomationRule,
+  initializeScheduledRules,
+  cancelScheduledRule
 }; 

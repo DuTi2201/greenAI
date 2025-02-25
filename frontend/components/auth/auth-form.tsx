@@ -67,7 +67,7 @@ const translations = {
     registerSuccess: "Đăng ký thành công",
     registerSuccessDesc: "Tài khoản của bạn đã được tạo thành công",
     resetSuccess: "Yêu cầu đặt lại mật khẩu thành công",
-    resetSuccessDesc: "Vui lòng kiểm tra email của bạn để đặt lại mật khẩu",
+    resetSuccessDesc: "Vui lòng kiểm tra email của bạn để nhận liên kết đặt lại mật khẩu",
     errors: {
       invalidCredentials: "Email hoặc mật khẩu không đúng",
       emailExists: "Email đã tồn tại trong hệ thống",
@@ -236,6 +236,8 @@ export function AuthForm({ type }: AuthFormProps) {
         toast({
           title: t.resetSuccess,
           description: t.resetSuccessDesc,
+          variant: "success",
+          duration: 5000,
         })
       }
     } catch (error: any) {
@@ -365,7 +367,7 @@ export function AuthForm({ type }: AuthFormProps) {
 
           {(type === "register" || type === "forgot-password") && (
             <Button variant="link" className="w-full" asChild>
-              <Link href="/login">{t.backToLogin}</Link>
+              
             </Button>
           )}
         </div>

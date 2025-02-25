@@ -23,7 +23,7 @@ import reportRouter from './api/routes/reports';
 import gardenRouter from './api/routes/gardens';
 import plantRouter from './api/routes/plants';
 import logRouter from './api/routes/logs';
-import aiRouter from './api/routes/ai';
+import { aiRouter } from './api/routes/ai';
 
 // Load environment variables
 config();

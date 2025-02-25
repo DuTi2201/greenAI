@@ -18,8 +18,8 @@ export function TokenChecker() {
   const publicPaths = ['/login', '/register', '/forgot-password', '/reset-password'];
   
   useEffect(() => {
-    // Bỏ qua kiểm tra nếu đang ở trang đăng nhập hoặc đăng ký
-    if (pathname?.startsWith('/login') || pathname?.startsWith('/register')) {
+    // Bỏ qua kiểm tra nếu đang ở các trang công khai
+    if (publicPaths.some(path => pathname?.startsWith(path))) {
       setChecking(false);
       return;
     }

@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { authService } from './auth';
+import { api } from '../api';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001/api';
 
@@ -63,7 +64,7 @@ export interface DeviceControlData {
   waterPumpStatus?: boolean;
 }
 
-class DeviceService {
+export class DeviceService {
   private getHeaders() {
     const token = authService.getToken();
     if (!token) {
@@ -232,4 +233,72 @@ class DeviceService {
   }
 }
 
-export const deviceService = new DeviceService(); 
+const deviceServiceInstance = new DeviceService();
+
+/**
+ * Tạo quy tắc tự động hóa mới
+ * @param gardenId ID của vườn
+ * @param data Dữ liệu quy tắc
+ * @returns Quy tắc đã tạo
+ */
+export const createAutomationRule = async (gardenId: string, data: any) => {
+  const response = await api.post('/automation/rules', {
+    ...data,
+    gardenId
+  });
+  return response.data;
+};
+
+/**
+ * Cập nhật quy tắc tự động hóa
+ * @param ruleId ID của quy tắc
+ * @param data Dữ liệu cập nhật
+ * @returns Quy tắc đã cập nhật
+ */
+export const updateAutomationRule = async (ruleId: string, data: any) => {
+  const response = await api.put(`/automation/rules/${ruleId}`, data);
+  return response.data;
+};
+
+/**
+ * Xóa quy tắc tự động hóa
+ * @param ruleId ID của quy tắc
+ */
+export const deleteAutomationRule = async (ruleId: string) => {
+  await api.delete(`/automation/rules/${ruleId}`);
+};
+
+/**
+ * Lấy danh sách quy tắc tự động hóa của vườn
+ * @param gardenId ID của vườn
+ * @returns Danh sách quy tắc
+ */
+export const getAutomationRules = async (gardenId: string) => {
+  const response = await api.get(`/automation/rules/${gardenId}`);
+  return response.data;
+};
+
+/**
+ * Kiểm tra xung đột giữa các quy tắc
+ * @param gardenId ID của vườn
+ * @returns Thông tin xung đột
+ */
+export const checkRuleConflicts = async (gardenId: string) => {
+  const response = await api.get(`/automation/rules/${gardenId}/conflicts`);
+  return response.data;
+};
+
+export const deviceService = {
+  getAllDevices: deviceServiceInstance.getAllDevices.bind(deviceServiceInstance),
+  getDevice: deviceServiceInstance.getDevice.bind(deviceServiceInstance),
+  createDevice: deviceServiceInstance.createDevice.bind(deviceServiceInstance),
+  updateDevice: deviceServiceInstance.updateDevice.bind(deviceServiceInstance),
+  deleteDevice: deviceServiceInstance.deleteDevice.bind(deviceServiceInstance),
+  controlDevice: deviceServiceInstance.controlDevice.bind(deviceServiceInstance),
+  getSensorData: deviceServiceInstance.getSensorData.bind(deviceServiceInstance),
+  createAutomationRule,
+  updateAutomationRule,
+  deleteAutomationRule,
+  getAutomationRules,
+  checkRuleConflicts,
+}; 

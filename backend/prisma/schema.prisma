@@ -41,6 +41,7 @@ model Garden {
   updatedAt       DateTime              @updatedAt
   deviceType      String?
   firmwareVersion String?
+  aiAlerts        AIAlert[]
   aiReports       AIReport[]
   automationRules AutomationRule[]
   deviceStatus    DeviceStatus[]
@@ -79,19 +80,25 @@ model DeviceStatus {
 }
 
 model AutomationRule {
-  id                String   @id @default(uuid())
+  id                String    @id @default(uuid())
   gardenId          String
-  sensorType        String
-  conditionOperator String
+  name              String?
+  sensorType        String    // 'temperature', 'humidity', 'soilMoisture', 'lightLevel', 'schedule'
+  conditionOperator String    // '>', '<', '=', '>=', '<=', 'time'
   thresholdValue    Float
-  actionDevice      String
+  actionDevice      String    // 'fan', 'led', 'nutrientPump', 'waterPump'
   actionStatus      Boolean
-  isActive          Boolean  @default(true)
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  delayTime         Int      @default(300)
-  priority          Int      @default(0)
-  garden            Garden   @relation(fields: [gardenId], references: [id], onDelete: Cascade)
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  delayTime         Int       @default(300)
+  priority          Int       @default(0)
+  scheduleTime      String?   // Thời gian lập lịch (HH:MM)
+  scheduleType      String?   // 'once', 'daily', 'weekly'
+  scheduleDay       Int?      // Ngày trong tuần (0-6, 0 là Chủ nhật)
+  scheduleDate      DateTime? // Ngày cụ thể (cho lịch một lần)
+  lastExecuted      DateTime? // Thời gian thực hiện gần nhất
+  garden            Garden    @relation(fields: [gardenId], references: [id], onDelete: Cascade)
 }
 
 model Schedule {
@@ -132,6 +139,19 @@ model AIReport {
   reportFormat        String   @default("PDF")
   status              String   @default("completed")
   garden              Garden   @relation(fields: [gardenId], references: [id], onDelete: Cascade)
+}
+
+model AIAlert {
+  id          String   @id @default(uuid())
+  gardenId    String
+  type        String
+  severity    String
+  message     String
+  isRead      Boolean  @default(false)
+  isResolved  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  garden      Garden   @relation(fields: [gardenId], references: [id], onDelete: Cascade)
 }
 
 model ReportSchedule {

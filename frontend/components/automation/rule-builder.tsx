@@ -1,7 +1,8 @@
 "use client"
-import { useForm } from "react-hook-form"
+import { useForm, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
+import { useState, useEffect } from "react"
 import { useLanguage } from "@/providers/language-provider"
 import { useGarden } from "@/contexts/garden-context"
 import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
@@ -52,6 +53,13 @@ const translations = {
       success: "Rule created successfully",
       error: "Failed to create rule",
     },
+    sensors: {
+      temperature: "Temperature",
+      humidity: "Humidity",
+      soilMoisture: "Soil Moisture",
+      lightLevel: "Light Level",
+      schedule: "Schedule",
+    },
   },
   vi: {
     name: "Tên Quy tắc",
@@ -78,6 +86,17 @@ const translations = {
       schedule: "Tùy chọn: Đặt lịch thời gian cho quy tắc này",
       threshold: "Kéo để thiết lập ngưỡng cảm biến",
     },
+    toasts: {
+      success: "Đã tạo quy tắc thành công",
+      error: "Không thể tạo quy tắc",
+    },
+    sensors: {
+      temperature: "Nhiệt độ",
+      humidity: "Độ ẩm",
+      soilMoisture: "Độ ẩm đất",
+      lightLevel: "Độ sáng",
+      schedule: "Lịch",
+    },
   },
 }
 
@@ -88,7 +107,8 @@ const formSchema = z.object({
   operator: z.string(),
   value: z.number(),
   action: z.string(),
-  scheduleType: z.string(),
+  scheduleType: z.string().optional(),
+  scheduleDay: z.number().optional(),
   scheduleDate: z.date().optional(),
   scheduleTime: z.string().optional(),
   isActive: z.boolean(),
@@ -97,18 +117,92 @@ const formSchema = z.object({
 export function RuleBuilder() {
   const { language } = useLanguage()
   const t = translations[language]
+  const [isLoading, setIsLoading] = useState(false)
+  const [open, setOpen] = useState(false)
+  const { toast } = useToast()
+  const queryClient = useQueryClient()
+  const { selectedGardenId } = useGarden()
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       isActive: true,
       value: 25,
+      deviceId: selectedGardenId || "",
     },
+  })
+  
+  // Cập nhật deviceId khi selectedGardenId thay đổi
+  useEffect(() => {
+    if (selectedGardenId) {
+      form.setValue("deviceId", selectedGardenId);
+    }
+  }, [selectedGardenId, form]);
+  
+  // Theo dõi các giá trị form để hiển thị UI động
+  const watchSensor = useWatch({
+    control: form.control,
+    name: "sensor",
+  })
+  
+  const watchScheduleType = useWatch({
+    control: form.control,
+    name: "scheduleType",
   })
 
   async function onSubmit(values: z.infer<typeof formSchema>) {
-    console.log(values)
-    // TODO: Send to API
+    if (isLoading) return
+    setIsLoading(true)
+
+    try {
+      // Kiểm tra xem có phải là quy tắc lập lịch không
+      const isScheduleRule = values.sensor === "schedule";
+      
+      const payload: any = {
+        gardenId: values.deviceId,
+        name: values.name,
+        sensorType: values.sensor,
+        conditionOperator: isScheduleRule ? "time" : values.operator,
+        thresholdValue: isScheduleRule ? 0 : values.value,
+        actionDevice: values.action.split("-")[0],
+        actionStatus: values.action.split("-")[1] === "on",
+        isActive: values.isActive,
+      }
+      
+      // Thêm thông tin lập lịch nếu cần
+      if (isScheduleRule) {
+        if (!values.scheduleTime || !values.scheduleType) {
+          throw new Error("Thời gian và loại lịch là bắt buộc cho quy tắc lập lịch");
+        }
+        
+        payload.scheduleTime = values.scheduleTime;
+        payload.scheduleType = values.scheduleType;
+        
+        if (values.scheduleType === "weekly" && values.scheduleDay !== undefined) {
+          payload.scheduleDay = values.scheduleDay;
+        }
+        
+        if (values.scheduleType === "once" && values.scheduleDate) {
+          payload.scheduleDate = values.scheduleDate.toISOString();
+        }
+      }
+
+      await deviceService.createAutomationRule(values.deviceId, payload)
+      setOpen(false)
+      queryClient.invalidateQueries({ queryKey: ["automation-rules"] })
+      toast({
+        title: t.toasts.success,
+      })
+    } catch (error) {
+      console.error("Create rule error:", error)
+      toast({
+        title: t.toasts.error,
+        variant: "destructive",
+        description: error instanceof Error ? error.message : undefined,
+      })
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -132,33 +226,21 @@ export function RuleBuilder() {
           control={form.control}
           name="deviceId"
           render={({ field }) => (
-            <FormItem>
-              <FormLabel>{t.device}</FormLabel>
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
-                <FormControl>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select device" />
-                  </SelectTrigger>
-                </FormControl>
-                <SelectContent>
-                  <SelectItem value="device1">Garden Sensor 1</SelectItem>
-                  <SelectItem value="device2">Garden Sensor 2</SelectItem>
-                </SelectContent>
-              </Select>
-              <FormMessage />
+            <FormItem className="hidden">
+              <FormControl>
+                <Input type="hidden" {...field} />
+              </FormControl>
             </FormItem>
           )}
         />
 
         <div className="space-y-4">
-          <div className="flex items-center">
-            <h4 className="text-sm font-medium">{t.condition}</h4>
+          <div className="flex items-center gap-2">
+            <h3 className="text-lg font-medium">{t.condition}</h3>
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-4 w-4 ml-2">
-                    <Info className="h-3 w-3" />
-                  </Button>
+                  <Info className="h-4 w-4 text-muted-foreground" />
                 </TooltipTrigger>
                 <TooltipContent>
                   <p>{t.tooltips.condition}</p>
@@ -167,72 +249,219 @@ export function RuleBuilder() {
             </TooltipProvider>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <FormField
-              control={form.control}
-              name="sensor"
-              render={({ field }) => (
-                <FormItem>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder={t.sensor} />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="temperature">Temperature</SelectItem>
-                      <SelectItem value="humidity">Humidity</SelectItem>
-                      <SelectItem value="light">Light</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
+          {watchSensor !== "schedule" ? (
+            <div className="grid grid-cols-3 gap-4">
+              <FormField
+                control={form.control}
+                name="sensor"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t.sensor}</FormLabel>
+                    <Select onValueChange={(value) => {
+                      field.onChange(value);
+                      // Reset schedule fields if not schedule
+                      if (value !== "schedule") {
+                        form.setValue("scheduleType", undefined);
+                        form.setValue("scheduleTime", undefined);
+                        form.setValue("scheduleDay", undefined);
+                        form.setValue("scheduleDate", undefined);
+                      }
+                    }} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder={language === "en" ? "Select sensor" : "Chọn cảm biến"} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="temperature">{t.sensors.temperature}</SelectItem>
+                        <SelectItem value="humidity">{t.sensors.humidity}</SelectItem>
+                        <SelectItem value="soilMoisture">{t.sensors.soilMoisture}</SelectItem>
+                        <SelectItem value="lightLevel">{t.sensors.lightLevel}</SelectItem>
+                        <SelectItem value="schedule">
+                          {t.sensors.schedule}
+                          <span className="ml-2 text-xs text-muted-foreground">
+                            {language === "en" ? "(Time-based trigger)" : "(Kích hoạt theo thời gian)"}
+                          </span>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormDescription>
+                      {watchSensor === "schedule" && (
+                        <span className="text-sm text-muted-foreground">
+                          {language === "en" 
+                            ? "Schedule option allows you to trigger actions based on time rather than sensor values" 
+                            : "Tùy chọn Lịch cho phép bạn kích hoạt hành động dựa trên thời gian thay vì giá trị cảm biến"}
+                        </span>
+                      )}
+                    </FormDescription>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-            <FormField
-              control={form.control}
-              name="operator"
-              render={({ field }) => (
-                <FormItem>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <FormControl>
-                      <SelectTrigger>
-                        <SelectValue placeholder={t.operator} />
-                      </SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="gt">{">"}</SelectItem>
-                      <SelectItem value="lt">{"<"}</SelectItem>
-                      <SelectItem value="eq">{"="}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )}
-            />
-          </div>
+              <FormField
+                control={form.control}
+                name="operator"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t.operator}</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder={language === "en" ? "Select operator" : "Chọn toán tử"} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value=">">{">"}</SelectItem>
+                        <SelectItem value="<">{"<"}</SelectItem>
+                        <SelectItem value="=">{"="}</SelectItem>
+                        <SelectItem value=">=">{">="}</SelectItem>
+                        <SelectItem value="<=">{"<="}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
 
-          <FormField
-            control={form.control}
-            name="value"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t.value}</FormLabel>
-                <FormControl>
-                  <Slider
-                    min={0}
-                    max={100}
-                    step={1}
-                    value={[field.value]}
-                    onValueChange={(values) => field.onChange(values[0])}
-                  />
-                </FormControl>
-                <FormDescription>{t.tooltips.threshold}</FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
+              <FormField
+                control={form.control}
+                name="value"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t.value}</FormLabel>
+                    <FormControl>
+                      <Input type="number" {...field} onChange={(e) => field.onChange(parseFloat(e.target.value))} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <FormField
+                control={form.control}
+                name="scheduleType"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t.scheduleType}</FormLabel>
+                    <Select onValueChange={(value) => {
+                      field.onChange(value);
+                      // Reset date/day based on schedule type
+                      if (value === "once") {
+                        form.setValue("scheduleDay", undefined);
+                      } else if (value === "daily") {
+                        form.setValue("scheduleDay", undefined);
+                        form.setValue("scheduleDate", undefined);
+                      } else if (value === "weekly") {
+                        form.setValue("scheduleDate", undefined);
+                      }
+                    }} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder={language === "en" ? "Select schedule type" : "Chọn loại lịch"} />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="once">{t.scheduleTypes.once}</SelectItem>
+                        <SelectItem value="daily">{t.scheduleTypes.daily}</SelectItem>
+                        <SelectItem value="weekly">{t.scheduleTypes.weekly}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {watchScheduleType === "weekly" && (
+                <FormField
+                  control={form.control}
+                  name="scheduleDay"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>{language === "en" ? "Day of Week" : "Ngày trong tuần"}</FormLabel>
+                      <Select onValueChange={(value) => field.onChange(parseInt(value))} defaultValue={field.value?.toString()}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder={language === "en" ? "Select day" : "Chọn ngày"} />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="0">{language === "en" ? "Sunday" : "Chủ nhật"}</SelectItem>
+                          <SelectItem value="1">{language === "en" ? "Monday" : "Thứ hai"}</SelectItem>
+                          <SelectItem value="2">{language === "en" ? "Tuesday" : "Thứ ba"}</SelectItem>
+                          <SelectItem value="3">{language === "en" ? "Wednesday" : "Thứ tư"}</SelectItem>
+                          <SelectItem value="4">{language === "en" ? "Thursday" : "Thứ năm"}</SelectItem>
+                          <SelectItem value="5">{language === "en" ? "Friday" : "Thứ sáu"}</SelectItem>
+                          <SelectItem value="6">{language === "en" ? "Saturday" : "Thứ bảy"}</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+
+              {watchScheduleType === "once" && (
+                <FormField
+                  control={form.control}
+                  name="scheduleDate"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-col">
+                      <FormLabel>{language === "en" ? "Date" : "Ngày"}</FormLabel>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <FormControl>
+                            <Button
+                              variant={"outline"}
+                              className={cn(
+                                "w-full pl-3 text-left font-normal",
+                                !field.value && "text-muted-foreground"
+                              )}
+                            >
+                              {field.value ? (
+                                format(field.value, "PPP")
+                              ) : (
+                                <span>{language === "en" ? "Pick a date" : "Chọn ngày"}</span>
+                              )}
+                              <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
+                            </Button>
+                          </FormControl>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={field.value}
+                            onSelect={field.onChange}
+                            disabled={(date) =>
+                              date < new Date(new Date().setHours(0, 0, 0, 0))
+                            }
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              )}
+
+              <FormField
+                control={form.control}
+                name="scheduleTime"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>{t.time}</FormLabel>
+                    <FormControl>
+                      <Input type="time" {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </div>
+          )}
         </div>
 
         <FormField
@@ -244,94 +473,24 @@ export function RuleBuilder() {
               <Select onValueChange={field.onChange} defaultValue={field.value}>
                 <FormControl>
                   <SelectTrigger>
-                    <SelectValue placeholder="Select action" />
+                    <SelectValue placeholder={language === "en" ? "Select action" : "Chọn hành động"} />
                   </SelectTrigger>
                 </FormControl>
                 <SelectContent>
-                  <SelectItem value="fan_on">Turn on fan</SelectItem>
-                  <SelectItem value="fan_off">Turn off fan</SelectItem>
-                  <SelectItem value="pump_on">Turn on pump</SelectItem>
-                  <SelectItem value="pump_off">Turn off pump</SelectItem>
+                  <SelectItem value="fan-on">Bật quạt</SelectItem>
+                  <SelectItem value="fan-off">Tắt quạt</SelectItem>
+                  <SelectItem value="led-on">Bật đèn LED</SelectItem>
+                  <SelectItem value="led-off">Tắt đèn LED</SelectItem>
+                  <SelectItem value="waterPump-on">Bật máy bơm nước</SelectItem>
+                  <SelectItem value="waterPump-off">Tắt máy bơm nước</SelectItem>
+                  <SelectItem value="nutrientPump-on">Bật máy bơm dinh dưỡng</SelectItem>
+                  <SelectItem value="nutrientPump-off">Tắt máy bơm dinh dưỡng</SelectItem>
                 </SelectContent>
               </Select>
               <FormMessage />
             </FormItem>
           )}
         />
-
-        <div className="space-y-4">
-          <FormField
-            control={form.control}
-            name="scheduleType"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t.scheduleType}</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select schedule type" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    <SelectItem value="once">{t.scheduleTypes.once}</SelectItem>
-                    <SelectItem value="daily">{t.scheduleTypes.daily}</SelectItem>
-                    <SelectItem value="weekly">{t.scheduleTypes.weekly}</SelectItem>
-                    <SelectItem value="custom">{t.scheduleTypes.custom}</SelectItem>
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="scheduleDate"
-            render={({ field }) => (
-              <FormItem className="flex flex-col">
-                <FormLabel>{t.schedule}</FormLabel>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <FormControl>
-                      <Button
-                        variant={"outline"}
-                        className={cn("w-full pl-3 text-left font-normal", !field.value && "text-muted-foreground")}
-                      >
-                        {field.value ? format(field.value, "PPP") : <span>Pick a date</span>}
-                        <CalendarIcon className="ml-auto h-4 w-4 opacity-50" />
-                      </Button>
-                    </FormControl>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <Calendar
-                      mode="single"
-                      selected={field.value}
-                      onSelect={field.onChange}
-                      disabled={(date) => date < new Date()}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-                <FormDescription>{t.tooltips.schedule}</FormDescription>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-
-          <FormField
-            control={form.control}
-            name="scheduleTime"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>{t.time}</FormLabel>
-                <FormControl>
-                  <Input type="time" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </div>
 
         <FormField
           control={form.control}
@@ -348,8 +507,15 @@ export function RuleBuilder() {
           )}
         />
 
-        <Button type="submit" className="w-full">
-          {t.save}
+        <Button type="submit" className="w-full" disabled={isLoading}>
+          {isLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              {language === "en" ? "Saving..." : "Đang lưu..."}
+            </>
+          ) : (
+            t.save
+          )}
         </Button>
       </form>
     </Form>

@@ -5,9 +5,12 @@ import Link from "next/link"
 export default function LoginPage() {
   return (
     <div className="container flex h-screen w-screen flex-col items-center justify-center">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <CardTitle>Login</CardTitle>
+      <Card className="w-full max-w-md border-none shadow-lg bg-background/95 backdrop-blur-sm">
+        <CardHeader className="space-y-1">
+          <CardTitle className="text-2xl font-bold text-center">Đăng nhập</CardTitle>
+          <p className="text-sm text-muted-foreground text-center">
+            Nhập thông tin đăng nhập của bạn để truy cập hệ thống
+          </p>
         </CardHeader>
         <CardContent>
           <AuthForm type="login" />
