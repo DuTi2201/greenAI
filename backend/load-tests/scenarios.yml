@@ -1,0 +1,100 @@
+config:
+  target: "http://localhost:3001/api"
+  phases:
+    - duration: 60
+      arrivalRate: 5
+      name: "Warm up"
+    - duration: 300
+      arrivalRate: 10
+      rampTo: 50
+      name: "Ramp up load"
+    - duration: 600
+      arrivalRate: 50
+      name: "Sustained load"
+  processor: "./functions.js"
+  defaults:
+    headers:
+      Content-Type: "application/json"
+
+scenarios:
+  - name: "User authentication flow"
+    weight: 1
+    flow:
+      - post:
+          url: "/auth/register"
+          json:
+            email: "{{ $randomEmail() }}"
+            password: "Test@123"
+            fullName: "Test User"
+          capture:
+            - json: "$.token"
+              as: "authToken"
+      - post:
+          url: "/auth/login"
+          json:
+            email: "{{ $randomEmail() }}"
+            password: "Test@123"
+
+  - name: "Garden management flow"
+    weight: 2
+    flow:
+      - function: "setAuthToken"
+      - post:
+          url: "/gardens"
+          json:
+            name: "Test Garden"
+            wemosSerial: "{{ $randomString() }}"
+            location: "Backyard"
+          capture:
+            - json: "$.id"
+              as: "gardenId"
+      - get:
+          url: "/gardens/{{ gardenId }}"
+      - put:
+          url: "/gardens/{{ gardenId }}"
+          json:
+            name: "Updated Garden"
+            location: "Front Yard"
+
+  - name: "Sensor data flow"
+    weight: 3
+    flow:
+      - function: "setAuthToken"
+      - function: "getRandomGardenId"
+      - post:
+          url: "/gardens/{{ gardenId }}/sensor-data"
+          json:
+            temperature: "{{ $randomInt(20, 30) }}"
+            humidity: "{{ $randomInt(40, 60) }}"
+            soilMoisture: "{{ $randomInt(30, 70) }}"
+            lightLevel: "{{ $randomInt(1000, 10000) }}"
+      - get:
+          url: "/gardens/{{ gardenId }}/sensor-data"
+          qs:
+            from: "{{ $timestamp(-86400) }}"
+            to: "{{ $timestamp() }}"
+
+  - name: "Automation rules flow"
+    weight: 2
+    flow:
+      - function: "setAuthToken"
+      - function: "getRandomGardenId"
+      - post:
+          url: "/automation/rules"
+          json:
+            gardenId: "{{ gardenId }}"
+            sensorType: "temperature"
+            conditionOperator: ">"
+            thresholdValue: 30
+            actionDevice: "fan"
+            actionStatus: true
+          capture:
+            - json: "$.id"
+              as: "ruleId"
+      - get:
+          url: "/automation/rules/{{ gardenId }}"
+      - put:
+          url: "/automation/rules/{{ ruleId }}"
+          json:
+            thresholdValue: 25
+            isActive: false 

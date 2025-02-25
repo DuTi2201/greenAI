@@ -1,0 +1,206 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String           @id @default(uuid())
+  email             String           @unique
+  passwordHash      String
+  fullName          String?
+  preferredLanguage String           @default("en")
+  themePreference   String           @default("light")
+  phoneNumber       String?
+  dateOfBirth       DateTime?
+  resetToken        String?
+  resetTokenExpiry  DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  isActive          Boolean          @default(true)
+  role              String           @default("user")
+  gardens           Garden[]
+  notifications     Notification[]
+  reportSchedules   ReportSchedule[]
+}
+
+model Garden {
+  id              String                @id @default(uuid())
+  userId          String
+  name            String
+  wemosSerial     String                @unique
+  apiKey          String                @unique
+  location        String?
+  description     String?
+  status          String                @default("active")
+  lastConnected   DateTime?
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  deviceType      String?
+  firmwareVersion String?
+  aiReports       AIReport[]
+  automationRules AutomationRule[]
+  deviceStatus    DeviceStatus[]
+  deviceHistory   DeviceStatusHistory[]
+  user            User                  @relation(fields: [userId], references: [id])
+  notifications   Notification[]
+  plantGardens    PlantGarden[]
+  reportSchedules ReportSchedule[]
+  schedules       Schedule[]
+  sensorData      SensorData[]
+  systemLogs      SystemLog[]
+}
+
+model SensorData {
+  id           String   @id @default(uuid())
+  gardenId     String
+  temperature  Decimal  @db.Decimal(4, 2)
+  humidity     Decimal  @db.Decimal(4, 2)
+  lightLevel   Decimal  @db.Decimal(6, 2)
+  soilMoisture Decimal  @db.Decimal(4, 2)
+  recordedAt   DateTime @default(now())
+  garden       Garden   @relation(fields: [gardenId], references: [id], onDelete: Cascade)
+
+  @@index([gardenId, recordedAt])
+}
+
+model DeviceStatus {
+  id                 String   @id @default(uuid())
+  gardenId           String
+  fanStatus          Boolean  @default(false)
+  ledStatus          Boolean  @default(false)
+  nutrientPumpStatus Boolean  @default(false)
+  waterPumpStatus    Boolean  @default(false)
+  updatedAt          DateTime @default(now())
+  garden             Garden   @relation(fields: [gardenId], references: [id], onDelete: Cascade)
+}
+
+model AutomationRule {
+  id                String   @id @default(uuid())
+  gardenId          String
+  sensorType        String
+  conditionOperator String
+  thresholdValue    Float
+  actionDevice      String
+  actionStatus      Boolean
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  delayTime         Int      @default(300)
+  priority          Int      @default(0)
+  garden            Garden   @relation(fields: [gardenId], references: [id], onDelete: Cascade)
+}
+
+model Schedule {
+  id             String   @id @default(uuid())
+  gardenId       String
+  deviceType     String
+  actionStatus   Boolean
+  cronExpression String
+  isActive       Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  garden         Garden   @relation(fields: [gardenId], references: [id], onDelete: Cascade)
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  gardenId  String
+  title     String
+  message   String
+  type      String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  garden    Garden   @relation(fields: [gardenId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model AIReport {
+  id                  String   @id @default(uuid())
+  gardenId            String
+  reportType          String
+  result              Json
+  analysisPeriodStart DateTime
+  analysisPeriodEnd   DateTime
+  geminiModelVersion  String
+  createdAt           DateTime @default(now())
+  reportFormat        String   @default("PDF")
+  status              String   @default("completed")
+  garden              Garden   @relation(fields: [gardenId], references: [id], onDelete: Cascade)
+}
+
+model ReportSchedule {
+  id                String    @id @default(uuid())
+  userId            String
+  gardenId          String
+  frequency         String
+  dayOfWeek         Int?
+  timeOfDay         DateTime
+  emailRecipient    String
+  reportType        String
+  isActive          Boolean   @default(true)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  lastSent          DateTime?
+  nextScheduledSend DateTime?
+  garden            Garden    @relation(fields: [gardenId], references: [id], onDelete: Cascade)
+  user              User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Plant {
+  id                     String        @id @default(uuid())
+  name                   String
+  optimalTemperatureMin  Float
+  optimalTemperatureMax  Float
+  optimalHumidityMin     Float
+  optimalHumidityMax     Float
+  optimalSoilMoistureMin Float
+  optimalSoilMoistureMax Float
+  optimalLightLevelMin   Float
+  optimalLightLevelMax   Float
+  description            String?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  plantGardens           PlantGarden[]
+}
+
+model PlantGarden {
+  id        String   @id @default(uuid())
+  gardenId  String
+  plantId   String
+  plantedAt DateTime @default(now())
+  status    String   @default("active")
+  notes     String?
+  garden    Garden   @relation(fields: [gardenId], references: [id], onDelete: Cascade)
+  plant     Plant    @relation(fields: [plantId], references: [id], onDelete: Cascade)
+}
+
+model SystemLog {
+  id          String   @id @default(uuid())
+  gardenId    String
+  eventType   String
+  description String
+  level       String
+  createdAt   DateTime @default(now())
+  garden      Garden   @relation(fields: [gardenId], references: [id], onDelete: Cascade)
+
+  @@index([gardenId, createdAt])
+}
+
+model DeviceStatusHistory {
+  id                 String   @id @default(uuid())
+  gardenId           String
+  fanStatus          Boolean
+  ledStatus          Boolean
+  nutrientPumpStatus Boolean
+  waterPumpStatus    Boolean
+  changedAt          DateTime @default(now())
+  garden             Garden   @relation(fields: [gardenId], references: [id], onDelete: Cascade)
+
+  @@index([gardenId, changedAt])
+}
