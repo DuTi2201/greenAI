@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GardenAI - Tạo mã QR cho Wemos D1</title>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.1/build/qrcode.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            color: #333;
+        }
+        h1 {
+            color: #2563eb;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            font-size: 16px;
+        }
+        button {
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+        }
+        button:hover {
+            background-color: #1d4ed8;
+        }
+        #qrcode {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .qr-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 30px;
+            padding: 20px;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            background-color: #f9fafb;
+        }
+        .error {
+            color: #dc2626;
+            font-size: 14px;
+            margin-top: 5px;
+        }
+        .hidden {
+            display: none;
+        }
+        .instructions {
+            background-color: #f0f9ff;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .instructions h3 {
+            margin-top: 0;
+            color: #0369a1;
+        }
+        .instructions ul {
+            margin-bottom: 0;
+            padding-left: 20px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Tạo mã QR cho Wemos D1</h1>
+    
+    <div class="instructions">
+        <h3>Hướng dẫn</h3>
+        <ul>
+            <li>Nhập số serial 6 ký tự của thiết bị Wemos D1</li>
+            <li>Nhập khóa API 5 ký tự của thiết bị</li>
+            <li>Nhấn "Tạo mã QR" để tạo mã QR</li>
+            <li>Quét mã QR bằng ứng dụng GardenAI để kết nối thiết bị</li>
+        </ul>
+    </div>
+    
+    <div class="form-group">
+        <label for="serial">Serial Wemos D1 (6 ký tự):</label>
+        <input type="text" id="serial" maxlength="6" placeholder="Ví dụ: ABC123">
+        <div id="serial-error" class="error hidden">Serial phải có đúng 6 ký tự</div>
+    </div>
+    
+    <div class="form-group">
+        <label for="apiKey">Khóa API (5 ký tự):</label>
+        <input type="text" id="apiKey" maxlength="5" placeholder="Ví dụ: XYZ12">
+        <div id="apiKey-error" class="error hidden">Khóa API phải có đúng 5 ký tự</div>
+    </div>
+    
+    <button id="generate">Tạo mã QR</button>
+    
+    <div id="qr-container" class="qr-container hidden">
+        <h3>Mã QR của bạn</h3>
+        <div id="qrcode"></div>
+        <p id="qr-data" style="margin-top: 10px; font-family: monospace;"></p>
+        <p style="font-size: 14px; margin-top: 20px;">Quét mã QR này bằng ứng dụng GardenAI để kết nối thiết bị Wemos D1 của bạn.</p>
+    </div>
+    
+    <script>
+        document.getElementById('generate').addEventListener('click', function() {
+            const serial = document.getElementById('serial').value.trim();
+            const apiKey = document.getElementById('apiKey').value.trim();
+            
+            // Kiểm tra độ dài
+            let hasError = false;
+            
+            if (serial.length !== 6) {
+                document.getElementById('serial-error').classList.remove('hidden');
+                hasError = true;
+            } else {
+                document.getElementById('serial-error').classList.add('hidden');
+            }
+            
+            if (apiKey.length !== 5) {
+                document.getElementById('apiKey-error').classList.remove('hidden');
+                hasError = true;
+            } else {
+                document.getElementById('apiKey-error').classList.add('hidden');
+            }
+            
+            if (hasError) return;
+            
+            // Tạo chuỗi dữ liệu QR
+            const qrData = `${serial}:${apiKey}`;
+            
+            // Xóa mã QR cũ nếu có
+            document.getElementById('qrcode').innerHTML = '';
+            
+            // Tạo mã QR mới
+            QRCode.toCanvas(document.getElementById('qrcode'), qrData, {
+                width: 200,
+                margin: 1,
+                color: {
+                    dark: '#2563eb',
+                    light: '#ffffff'
+                }
+            }, function(error) {
+                if (error) console.error(error);
+                console.log('QR code generated!');
+            });
+            
+            // Hiển thị dữ liệu
+            document.getElementById('qr-data').textContent = qrData;
+            
+            // Hiển thị container
+            document.getElementById('qr-container').classList.remove('hidden');
+        });
+    </script>
+</body>
+</html> 
